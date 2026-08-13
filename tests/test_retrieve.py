@@ -42,6 +42,29 @@ def test_off_topic_query_drops_zero_similarity_passages(retriever: Retriever) ->
     assert "package-size.md" not in sources
 
 
+def test_ranking_is_deterministic(retriever: Retriever, corpus_dir: Path) -> None:
+    # TF-IDF retrieval has no randomness, so a freshly built index must produce
+    # byte-identical scores for the same query — the property the whole tool
+    # relies on to be a stable visibility signal.
+    documents = load_corpus(corpus_dir)
+    other = Retriever(chunk_documents(documents))
+
+    query = "how does provisioned concurrency reduce cold starts"
+    first = [(p.chunk.source, p.score) for p in retriever.top_k(query, k=3)]
+    second = [(p.chunk.source, p.score) for p in other.top_k(query, k=3)]
+
+    assert first == second
+
+
+def test_top_k_larger_than_corpus_returns_all_matches(retriever: Retriever) -> None:
+    # Asking for more passages than exist must not raise or pad — it returns
+    # every positive-similarity passage, capped by what the corpus contains.
+    passages = retriever.top_k("cold starts", k=1000)
+
+    assert all(p.score > 0.0 for p in passages)
+    assert passages == sorted(passages, key=lambda p: p.score, reverse=True)
+
+
 def test_empty_chunks_rejected() -> None:
     with pytest.raises(ValueError):
         Retriever([])
